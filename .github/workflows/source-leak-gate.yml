@@ -1,0 +1,21 @@
+name: source-leak-gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  source-leak-gate:
+    uses: cinatra-ai/ci/.github/workflows/source-leak-gate.yml@4c903fe9ca71ad47752a2bc92b72893e5f7c9814 # v0.1.0
+    with:
+      profile: default
+      ratchet_mode: line
+      # Scoped per-repo config: suppresses ONLY the GSD-product/path reference
+      # (SLG_METHODOLOGY false-positive intrinsic to a GSD-parity pack — see the
+      # _rationale in the config). Every other leak class stays fully active.
+      config: .github/source-leak-config.json
+      ref: 4c903fe9ca71ad47752a2bc92b72893e5f7c9814
