@@ -5,10 +5,14 @@
 // Flow (DESIGN §2.1):
 //   0. PREFLIGHT (hard): refuse to write the live ~/.claude / authoring HOME
 //      unless an explicit override is passed (W0 constraint C3). Always runs.
-//   1. Resolve the SOURCE (the clone = access gate). --source <path> uses a
-//      local repo fixture (tests + dev); otherwise clone the locked repo. A
-//      clone failure is SKIP-WITH-NOTICE (exit 0, nothing written) — never a
-//      hard session failure (R2's only fallback).
+//   1. Resolve the SOURCE. --source <path> uses a local repo fixture (tests +
+//      dev); otherwise use THIS package's own checkout when it is a complete
+//      pack (the `npx github:cinatra-ai/dev[#<ref>]` / `npx @cinatra-ai/dev`
+//      path — reproducible: the npx-pinned ref IS the installed content); only
+//      if the running checkout is NOT a pack, fall back to a shallow clone of
+//      the locked repo (the legacy clone-as-access-gate path). A clone failure
+//      is SKIP-WITH-NOTICE (exit 0, nothing written) — never a hard session
+//      failure (R2's only fallback).
 //   2. Assert payload-dir ownership (.identity) — fail closed if a different
 //      package squats ~/.claude/dev-core/ (codex finding 4).
 //   3. Stage payload -> ~/.claude/dev-core/.
@@ -105,23 +109,61 @@ function copyDir(src, dst, manifest, relBase, claudeDir) {
   }
 }
 
-// Resolve the pack SOURCE root: a local --source path (dev/tests) or a fresh
-// clone of the locked repo (the access gate). Returns { sourceRoot, cleanup }.
-// On clone failure returns { skip: true, reason }.
+// A directory is a valid pack SOURCE only if it can produce a real install:
+//   • a non-empty skills-src/ (≥1 `.md` — these are the artifacts that get
+//     staged; a source with zero skills stages nothing, so it is NOT a pack),
+//     AND
+//   • a bin/ tree (the staged dev-tools shim is copied UNCONDITIONALLY at the
+//     write step — its absence would crash AFTER the destructive payloadDir rm).
+// payload/ is OPTIONAL: a pack whose skills carry their workflow body INLINE
+// (the public dev pack) needs no payload/workflows/ — the converter emits a
+// self-contained launcher for those. This predicate is the fail-closed gate:
+// anything that is not a complete pack SKIPS-WITH-NOTICE before any write.
+function isPackSource(root) {
+  const skillsSrc = path.join(root, "skills-src");
+  const hasSkills =
+    fs.existsSync(skillsSrc) &&
+    fs.readdirSync(skillsSrc).some((f) => f.endsWith(".md"));
+  const hasBin = fs.existsSync(path.join(root, "bin"));
+  return hasSkills && hasBin;
+}
+
+// Resolve the pack SOURCE root. Order:
+//   1. --source <path> (dev/tests fixtures, local development).
+//   2. THIS package's own checkout — when the installer runs from a complete
+//      pack (e.g. `npx github:cinatra-ai/dev[#<ref>]` or `npx @cinatra-ai/dev`,
+//      where npm has already fetched THIS exact version into place). Installing
+//      from the fetched tree makes the install REPRODUCIBLE — the version you
+//      npx-pin is the version you get — and needs no second network round-trip.
+//   3. A fresh shallow clone of the locked repo (the legacy clone-as-access-gate
+//      path), used only when the running checkout is NOT itself a pack.
+// A clone failure is SKIP-WITH-NOTICE (exit 0, nothing written) — never a hard
+// session failure. Returns { sourceRoot, cleanup } or { skip: true, reason }.
 function resolveSource(args) {
   if (args.source) {
     let src = args.source;
     if (src.startsWith("file://")) src = fileURLToPath(src);
     src = path.resolve(src);
-    if (!fs.existsSync(path.join(src, "payload"))) {
-      return { skip: true, reason: `--source ${src} has no payload/ dir (not a pack source)` };
+    if (!isPackSource(src)) {
+      return { skip: true, reason: `--source ${src} is not a complete pack source (needs a non-empty skills-src/ and a bin/)` };
     }
     return { sourceRoot: src, cleanup: () => {} };
   }
-  // clone the locked repo into a temp dir
+  // The installer's own checkout (bin/ -> repo root). When run via npx, npm has
+  // already fetched THIS exact ref here, so use it directly (reproducible; no
+  // re-clone of a moving default branch).
+  const selfRoot = path.resolve(__dirname, "..");
+  if (isPackSource(selfRoot)) {
+    return { sourceRoot: selfRoot, cleanup: () => {} };
+  }
+  // Legacy fallback: clone the locked repo into a temp dir (access gate).
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cinatra-dev-clone-"));
   try {
     execFileSync("git", ["clone", "--depth", "1", REPO_HTTPS, tmp], { stdio: "pipe" });
+    if (!isPackSource(tmp)) {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      return { skip: true, reason: `cloned ${REPO_HTTPS} but it is not a complete pack source (needs a non-empty skills-src/ and a bin/)` };
+    }
     return { sourceRoot: tmp, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
   } catch (e) {
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -208,7 +250,15 @@ function run(argv) {
 
     // ---- 3..5. Build the staging plan ----
     const payloadSrc = path.join(sourceRoot, "payload");
+    const hasPayload = fs.existsSync(payloadSrc);
     const skillsSrcDir = path.join(sourceRoot, "skills-src");
+    // A skill's heavy body lives EITHER in payload/workflows/<stem>.md (the
+    // split-launcher form) OR inline in skills-src/<stem>.md (the self-contained
+    // form). The converter must only @-include a payload workflow that is
+    // actually staged — otherwise the installed launcher dangles on a missing
+    // file. A pack with no payload/ stages every skill self-contained.
+    const hasPayloadWorkflow = (stem) =>
+      hasPayload && fs.existsSync(path.join(payloadSrc, "workflows", `${stem}.md`));
 
     // discover source skills + their requires for the closure
     const sourceSkills = fs.existsSync(skillsSrcDir)
@@ -229,7 +279,9 @@ function run(argv) {
     for (const stem of effective) {
       const srcPath = path.join(skillsSrcDir, `${stem}.md`);
       const content = fs.readFileSync(srcPath, "utf8");
-      const converted = profiles.convertSourceToSkill(content, stem);
+      const converted = profiles.convertSourceToSkill(content, stem, {
+        hasPayloadWorkflow: hasPayloadWorkflow(stem),
+      });
       stagedSkills.push({ id: `${NAMESPACE}-${stem}`, content, converted });
       for (const ag of profiles.scanCalledAgents(content)) calledAgents.add(ag);
     }
@@ -275,7 +327,8 @@ function run(argv) {
       agents: stagedAgents.map((a) => path.join(layout.agentsDir, `${a.id}.md`)),
       settingsFile: layout.settingsFile,
       hooksMerged: Object.keys(block.hooks || {}),
-      source: args.source ? sourceRoot : "clone",
+      source: sourceRoot,
+      hasPayload,
     };
 
     if (args.dryRun) {
@@ -308,9 +361,13 @@ function run(argv) {
       keepHookBasenames: new Set(Object.keys(hookScripts(layout)).map((p) => path.basename(p))),
     });
 
-    // payload
+    // payload (engine dir). The pack ALWAYS gets a dev-core/ — it carries the
+    // staged bin/ shim, VERSION, and .identity even when the source ships no
+    // payload/ dir (a self-contained pack whose skill bodies are inline). When
+    // a payload/ IS present, copy its contents (workflows, shared manifests, …).
     guardedRm(layout.payloadDir, cd);
-    copyDir(payloadSrc, layout.payloadDir, manifest, "payload", cd);
+    guardedMkdir(layout.payloadDir, cd);
+    if (hasPayload) copyDir(payloadSrc, layout.payloadDir, manifest, "payload", cd);
     // also stage bin/lib so the staged dev-tools shim can resolve its modules
     copyDir(path.join(sourceRoot, "bin"), path.join(layout.payloadDir, "bin"), manifest, "bin", cd);
     // write VERSION + .identity into the payload dir

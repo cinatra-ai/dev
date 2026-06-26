@@ -1,0 +1,6 @@
+{
+  "version": "0.2.2",
+  "minClaudeCode": "2.1.0",
+  "channel": "main",
+  "note": "Git-based self-update source. bin/check-latest-version.cjs compares the installed dev-core/VERSION against this file fetched from the repo default branch."
+}

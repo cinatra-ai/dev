@@ -100,15 +100,26 @@ function splitFrontmatter(content) {
   return { frontmatter: m[1], body: m[2] };
 }
 
-// The converter: source skill content → thin SKILL.md launcher content.
-// Injects/normalizes the frontmatter `name` to dev-<stem>, preserves the
-// activation-optimized `description` + allowed-tools, and ensures the body
-// carries an <execution_context> @-include of the staged payload workflow.
+// The converter: source skill content → SKILL.md launcher content.
+// Injects/normalizes the frontmatter `name` to dev-<stem> and preserves the
+// activation-optimized `description` + allowed-tools.
+//
+// Body shape depends on WHERE the heavy workflow lives:
+//   • SPLIT form (payload workflow staged) — the body @-includes the staged
+//     payload workflow (@$HOME/.claude/dev-core/workflows/<stem>.md), so the
+//     thin launcher survives payload updates (the stable-shell pattern).
+//   • SELF-CONTAINED form (no payload workflow) — the skill body already
+//     carries its full workflow inline (the public dev pack ships skills this
+//     way and has no payload/), so the launcher keeps that inline body and we
+//     do NOT inject an include that would dangle on a missing file.
 //
 //   content: the source skills-src/<stem>.md
 //   stem:    the bare stem (e.g. "merge-doctrine")
+//   opts.hasPayloadWorkflow: whether payload/workflows/<stem>.md is staged
+//     (default true for backward compatibility with the split-launcher pack).
 // Returns the converted SKILL.md text.
-function convertSourceToSkill(content, stem) {
+function convertSourceToSkill(content, stem, opts = {}) {
+  const { hasPayloadWorkflow = true } = opts;
   const skillName = `${SKILL_PREFIX}${stem}`;
   const { frontmatter, body } = splitFrontmatter(content);
 
@@ -120,15 +131,15 @@ function convertSourceToSkill(content, stem) {
     fm = `name: ${skillName}\n${fm}`;
   }
 
-  // The $HOME-rooted include of the staged payload workflow. Absolute so it
-  // resolves regardless of CWD (parity with GSD's @$HOME/.claude/gsd-core/...).
-  const includeLine = `@$HOME/.claude/${NAMESPACE}-core/workflows/${stem}.md`;
-
-  // If the body already declares an execution_context, leave it (the source may
-  // include several payload files); otherwise inject one pointing at the
-  // matching workflow.
   let outBody = body;
-  if (!/<execution_context>/.test(outBody)) {
+  // Only inject the payload @-include when a payload workflow is actually staged
+  // AND the body does not already declare its own execution_context (a source
+  // may include several payload files). With no staged workflow, the inline body
+  // IS the skill — never reference a file that will not exist on disk.
+  if (hasPayloadWorkflow && !/<execution_context>/.test(outBody)) {
+    // The $HOME-rooted include of the staged payload workflow. Absolute so it
+    // resolves regardless of CWD.
+    const includeLine = `@$HOME/.claude/${NAMESPACE}-core/workflows/${stem}.md`;
     outBody =
       `<execution_context>\n${includeLine}\n</execution_context>\n\n` + outBody;
   }

@@ -19,9 +19,9 @@ or with Cinatra. The skills cover:
   integrating a Cinatra extension.
 - **Domain gotchas** — per-repo traps that have cost real rework.
 
-This package is **not published to npm**. Access and distribution are via this
-GitHub repository — having access to the repo is the access gate. Skill
-source lives in [`skills-src/`](./skills-src/).
+This is a **public** package. The fastest way to install is a single `npx`
+command (see [Install](#install)); you can also clone the repo and run the
+installer directly. Skill source lives in [`skills-src/`](./skills-src/).
 
 **What belongs here vs elsewhere:** skills that guide *how to develop with
 Cinatra* live here. Runtime application code, extension source, and
@@ -32,14 +32,40 @@ organisation-internal runbooks live in their own repos.
 ## Requirements
 
 - Node.js 20 or later
-- Git (the installer clones this repo as its source)
 - Claude Code (the skills are installed into the global Claude profile)
+- `npx` (bundled with npm) for the one-command install, **or** Git if you prefer
+  to clone and run the installer manually
 
 ---
 
 ## Install
 
-Clone this repository, then run the installer:
+### Option A — one command with `npx` (recommended)
+
+Install straight from the public GitHub repo — no clone, no npm publish needed:
+
+```sh
+npx --yes github:cinatra-ai/dev --claude --global \
+  --i-understand-this-writes-my-real-claude-dir
+```
+
+Pin to a specific tag for a reproducible install (recommended for CI):
+
+```sh
+npx --yes github:cinatra-ai/dev#<tag> --claude --global \
+  --i-understand-this-writes-my-real-claude-dir
+```
+
+`npx` fetches this exact ref and installs the skills it carries — the version
+you pin is the version you get (the installer no longer re-clones a moving
+default branch).
+
+> Once the package is published to npm, the same install is available as
+> `npx @cinatra-ai/dev --claude --global …` (and `npx @cinatra-ai/dev@<version>`
+> to pin). Publishing is gated on the org's npm scope + a release-on-tag
+> workflow; until then, use the `github:` spec above.
+
+### Option B — clone and run the installer
 
 ```sh
 git clone https://github.com/cinatra-ai/dev.git
@@ -47,17 +73,19 @@ cd dev
 node bin/install.mjs --claude --global --i-understand-this-writes-my-real-claude-dir
 ```
 
-The `--i-understand-this-writes-my-real-claude-dir` flag is required. The
-installer's preflight guard refuses to write your real `~/.claude` directory
-without an explicit acknowledgement — see [Configuration](#configuration) for
-why.
+### Required acknowledgement + dry run
+
+The `--i-understand-this-writes-my-real-claude-dir` flag is required for every
+install path. The installer's preflight guard **fails closed** — it refuses to
+write your real `~/.claude` directory without an explicit acknowledgement — see
+[Configuration](#configuration) for why.
 
 To preview what would be written without making any changes, add `--dry-run`.
 The preflight runs before dry-run handling, so the acknowledgement flag is
 still required:
 
 ```sh
-node bin/install.mjs --claude --global --dry-run \
+npx --yes github:cinatra-ai/dev --claude --global --dry-run \
   --i-understand-this-writes-my-real-claude-dir
 ```
 
@@ -102,15 +130,24 @@ stack:
 
 ### Install source
 
-Without `--source`, the installer clones the default branch of this repo from
-GitHub at install time — the clone is the source, not the local directory you
-cloned to check out this file. The installer requires network access and git
-credentials capable of reaching this repo.
+The installer resolves its source in this order:
 
-The installer copies the `payload/` directory from the cloned source into
-`~/.claude/dev-core/`. This directory must be present in the repo for the
-install to complete. If you see a "Skipping install (nothing written)" notice,
-confirm the repo is in a complete release state.
+1. `--source <path>` — a local pack checkout (used by the tests and local
+   development).
+2. **This package's own checkout** — when the installer runs from a complete
+   pack (the `npx github:cinatra-ai/dev[#<ref>]` / `npx @cinatra-ai/dev` path,
+   where the package has already been fetched into place). Installing from the
+   fetched tree makes the install reproducible: the ref you pin is the content
+   you get, with no second network round-trip.
+3. A shallow clone of `cinatra-ai/dev` — a fallback used only when the running
+   checkout is not itself a pack.
+
+The skills in this package carry their workflow body **inline**, so no separate
+`payload/` directory is required for them to install. If a future build ships a
+`payload/` directory, its contents are staged into `~/.claude/dev-core/`
+alongside the skills. If you see a "Skipping install (nothing written)" notice,
+the resolved source was not a valid pack (no `skills-src/`) — re-run from a
+complete checkout or via `npx`.
 
 ### Profile selection
 
@@ -136,17 +173,20 @@ It never touches settings entries owned by other tools.
 
 ## Release
 
-This package is distributed via git, not npm. The installer always clones the
-default branch HEAD at install time, so updating means re-running the installer
-after changes land on `main`.
+This package is installed from GitHub today (`npx github:cinatra-ai/dev`) and is
+designed to also publish to npm as a public package (`npx @cinatra-ai/dev`) once
+the org's npm scope and a release-on-tag workflow are in place.
 
 **To cut a release:**
 
 1. Update the version in `package.json`, `VERSION`, and `version.json` — keep
    all three in sync.
-2. Merge the version bump to `main`. The installer clones the default branch
-   head at install time; the version-check script reads `version.json` from
-   the default branch via the GitHub API. There is no npm publish step.
+2. Merge the version bump to `main`, then tag the release commit so `npx
+   github:cinatra-ai/dev#<tag>` resolves a reproducible, immutable ref. The
+   version-check script reads `version.json` from the default branch via the
+   GitHub API.
+3. (npm end state, owner-gated) Once the scope is registered, the release-on-tag
+   workflow publishes the tagged version to npm as a public package.
 
 **To check whether an update is available:**
 
@@ -179,11 +219,13 @@ node bin/install.mjs --claude --global --i-understand-this-writes-my-real-claude
 - Re-run with `--dry-run` (plus the acknowledgement flag) to see what the
   installer would write, then run without `--dry-run` to apply.
 
-**Clone fails during install ("could not clone…")**
+**"Skipping install (nothing written)" / clone fallback fails**
 
-The installer clones this repo from GitHub as its install source. Confirm you
-have a working git credential capable of reaching `cinatra-ai/dev`. The
-installer fails soft on a clone error — it prints a notice and writes nothing.
+When run via `npx` or from a cloned checkout, the installer uses that checkout
+directly as its source. The clone fallback only runs if the checkout is not a
+valid pack; it fails soft (prints a notice, writes nothing) if `cinatra-ai/dev`
+cannot be reached. Re-run from a complete checkout or via
+`npx --yes github:cinatra-ai/dev`.
 
 **The installer refuses: "dev-core/ exists but has no .identity marker"**
 
