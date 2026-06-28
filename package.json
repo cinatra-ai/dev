@@ -1,6 +1,6 @@
 {
   "name": "@cinatra-ai/dev",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Cinatra dev skills for Claude Code — set up and build with Cinatra (public).",
   "type": "module",
   "bin": {

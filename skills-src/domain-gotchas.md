@@ -1,6 +1,6 @@
 ---
 name: domain-gotchas
-description: "Apply the per-repo domain trap that bites when working in a specific cinatra repo: design-repo asset/spec conformance (the spec wins; defer to the live design system, never fork it), reusable release CI already exists (reuse, don't reinvent), schema-migration fixture re-apply, Next.js dev cold-compile staleness during live verification, the browser-URL vs container-URL split, a CodeQL false-positive needs an explicit dismissal, and the docs-repo convention. Activates for: 'design repo asset conformance', 'asset spec conformance', 'reusable release ci', 'schema migration fixture re-apply', 'codeql false positive dismissal', 'next cold compile staleness', 'browser url vs container url', 'docs repo convention', 'split a package'. Each is a non-obvious fact that has cost real rework; re-verify against current state since the repos drift."
+description: "Apply the per-repo domain trap that bites when working in a specific cinatra repo: design-repo asset/spec conformance (the spec wins; defer to the live design system, never fork it), reusable release CI already exists (reuse, don't reinvent), schema-migration fixture re-apply, Next.js dev cold-compile staleness during live verification, the browser-URL vs container-URL split, a CodeQL false-positive needs an explicit dismissal, the docs-repo convention, real-host CLI end-to-end testing (run the real command, not just unit asserts), the verify-don't-rebuild closeout pattern (the closeout tooling already exists — reuse it), the machine-arm merge-trailer format, and the buffered agent-output-mtime trap. Activates for: 'design repo asset conformance', 'asset spec conformance', 'reusable release ci', 'schema migration fixture re-apply', 'codeql false positive dismissal', 'next cold compile staleness', 'browser url vs container url', 'docs repo convention', 'split a package', 'real host cli testing', 'verify don't rebuild closeout', 'machine arm merge trailer', 'agent output mtime'. Each is a non-obvious fact that has cost real rework; re-verify against current state since the repos drift."
 argument-hint: "[design | release-ci | schema | codeql | docs]"
 allowed-tools:
   - Read
@@ -15,6 +15,10 @@ triggers:
   - "browser url vs container url"
   - "docs repo convention"
   - "split a package"
+  - "real host cli testing"
+  - "verify don't rebuild closeout"
+  - "machine arm merge trailer"
+  - "agent output mtime"
 antiTriggers:
   - "pdf"
   - "personal repo"
@@ -117,6 +121,58 @@ clear it you must DISMISS it as a false positive (with a concise justification w
 the comment cap) or it sits open silently. The dismissal is part of completing the
 fix; pair it with a converged review of the barrier before dismissing a higher-
 severity alert.
+
+## Real-host end-to-end testing catches what unit tests miss (CLI)
+
+A passing unit suite is NOT proof a CLI command works. A command can green every
+unit assert and still fail the moment a user runs it for real — a broken
+entry-point, a missing runtime file, a wrong working-directory assumption, a
+packaging gap — none of which the units exercise. When you change a CLI, RUN the
+actual command end-to-end on a real host (the published/installed entry-point, in
+a clean environment such as a container), not just the unit tests. After a
+targeted fix, do a full all-commands sweep so a fix in one command did not break
+another. "Units pass" and "the command works" are different claims; only the
+real-host run proves the second.
+
+## Verify, don't rebuild — the closeout tooling already exists
+
+When you reach a milestone closeout, the sweep tooling from prior closeouts is
+almost always ALREADY THERE — the dead-code/unused-dep scan, the
+previous-release upgrade-proof, the closeout test suite, the real-host CLI smoke.
+The closeout job is to VERIFY with those existing tools and fix what they find,
+NOT to rebuild the tooling from scratch. Before writing a new check, look for the
+one a previous closeout already shipped and run it; reinventing it is wasted work
+and drifts from the established sweep.
+
+## The machine-arm merge-trailer format
+
+A non-high-risk agent merge self-verifies through a MACHINE ARM in the squash
+body: a `Gate-suite: <suite>@<version>` line immediately followed by an
+`Accountable: <name> (@login)` line, plus a truthful `Assisted-by` trailer. Key
+shape rules:
+
+- **One `Assisted-by` line names every agent + model that materially changed the
+  diff.** When a single agent did the change, that is a SINGLE `Assisted-by`
+  line — do not pad it with extra agents who did not touch the diff. Use the BASE
+  model id (no brackets/spaces — a bracketed context-window suffix breaks the
+  gate grammar). A human-only change carries `Assisted-by: none`.
+- **Never a `Co-Authored-By` AI line or a "Generated with" badge** — those imply
+  authorship standing; the record is transparency, not co-authorship.
+- **A public-repo commit/PR carries NO private reference** — no private-engineering
+  issue number, no internal hostname, no secret name. The `Closes #N` line (when
+  used) goes on its own line with a blank line BEFORE the trailer block, never
+  inside it.
+
+A high-risk change uses the human arm instead (a real maintainer `Reviewed-by`),
+which is owner-routed — never fabricate any arm.
+
+## Agent output mtime is buffered — not a liveness signal
+
+The file modification time of an agent's output is BUFFERED: it does not update in
+real time as the agent works, so a stale mtime does NOT mean the agent has
+stalled, and a fresh one does not prove current progress. Do not treat
+output-file mtime as a heartbeat or a liveness check. Judge an agent's state from
+its actual reported result / exit, not from when its output file last changed.
 
 ## Steps (operational)
 
