@@ -19,9 +19,11 @@ or with Cinatra. The skills cover:
   integrating a Cinatra extension.
 - **Domain gotchas** — per-repo traps that have cost real rework.
 
-This is a **public** package. The fastest way to install is a single `npx`
-command (see [Install](#install)); you can also clone the repo and run the
-installer directly. Skill source lives in [`skills-src/`](./skills-src/).
+This is a **public** package, shipped as a native **Claude Code plugin**. The
+recommended way to install is `claude plugin marketplace add` + `claude plugin
+install` (see [Install](#install)); an `npx`-based installer is also kept during
+the transition. Skill source lives in [`skills/`](./skills/), one
+`skills/<name>/SKILL.md` per skill — the layout Claude Code auto-discovers.
 
 **What belongs here vs elsewhere:** skills that guide *how to develop with
 Cinatra* live here. Runtime application code, extension source, and
@@ -31,18 +33,43 @@ organisation-internal runbooks live in their own repos.
 
 ## Requirements
 
-- Node.js 20 or later
-- Claude Code (the skills are installed into the global Claude profile)
-- `npx` (bundled with npm) for the one-command install, **or** Git if you prefer
-  to clone and run the installer manually
+- Claude Code (with the `claude plugin` command) — for the native plugin install
+- Node.js 20 or later — for the `dev-tools` CLI engine the skills shell out to,
+  and for the optional `npx` installer
+- Git (to add the marketplace), **or** `npx` (bundled with npm) for the
+  transitional installer
 
 ---
 
 ## Install
 
-### Option A — one command with `npx` (recommended)
+### Option A — native Claude Code plugin (recommended)
 
-Install straight from the public GitHub repo — no clone, no npm publish needed:
+Add this repo as a plugin marketplace, then install the foundation plugin:
+
+```sh
+claude plugin marketplace add git@github.com:cinatra-ai/dev.git
+claude plugin install cinatra-foundation@cinatra-foundation
+```
+
+(Use the `https://github.com/cinatra-ai/dev.git` URL instead of the SSH one if
+you clone over HTTPS.)
+
+Claude Code stages the five skills from `skills/<name>/SKILL.md` and resolves the
+bundled `dev-tools` CLI engine at `$CLAUDE_PLUGIN_ROOT/bin/dev-tools.cjs`. The
+skills then activate on their natural-language triggers.
+
+**Updates are manual** (the native plugin update model — no self-updater):
+
+```sh
+claude plugin marketplace update   # refresh the marketplace from main
+claude plugin update cinatra-foundation
+```
+
+### Option B — `npx` installer (transitional)
+
+A clone-based installer is kept during the transition. It stages the skills into
+your global Claude profile (`~/.claude/skills/dev-*`) and a `dev-core/` payload:
 
 ```sh
 npx --yes github:cinatra-ai/dev --claude --global \
@@ -60,12 +87,7 @@ npx --yes github:cinatra-ai/dev#<tag> --claude --global \
 you pin is the version you get (the installer no longer re-clones a moving
 default branch).
 
-> Once the package is published to npm, the same install is available as
-> `npx @cinatra-ai/dev --claude --global …` (and `npx @cinatra-ai/dev@<version>`
-> to pin). Publishing is gated on the org's npm scope + a release-on-tag
-> workflow; until then, use the `github:` spec above.
-
-### Option B — clone and run the installer
+### Option C — clone and run the installer
 
 ```sh
 git clone https://github.com/cinatra-ai/dev.git
@@ -102,7 +124,8 @@ npx --yes github:cinatra-ai/dev --claude --global --dry-run \
 | `domain-gotchas` | Per-repo domain traps that have cost real rework (design conformance, release CI, schema fixtures, etc.). | `"domain gotchas"` |
 
 Trigger phrases are matched by Claude Code. See each skill file under
-[`skills-src/`](./skills-src/) for the full trigger list and workflow body.
+[`skills/`](./skills/) (`skills/<name>/SKILL.md`) for the full trigger list and
+workflow body.
 
 ---
 
@@ -146,8 +169,8 @@ The skills in this package carry their workflow body **inline**, so no separate
 `payload/` directory is required for them to install. If a future build ships a
 `payload/` directory, its contents are staged into `~/.claude/dev-core/`
 alongside the skills. If you see a "Skipping install (nothing written)" notice,
-the resolved source was not a valid pack (no `skills-src/`) — re-run from a
-complete checkout or via `npx`.
+the resolved source was not a valid pack (it needs both a `skills/<name>/SKILL.md`
+tree and a `bin/` directory) — re-run from a complete checkout or via `npx`.
 
 ### Profile selection
 
@@ -171,31 +194,29 @@ It never touches settings entries owned by other tools.
 
 ---
 
-## Release
+## Versioning and updates
 
-This package is installed from GitHub today (`npx github:cinatra-ai/dev`) and is
-designed to also publish to npm as a public package (`npx @cinatra-ai/dev`) once
-the org's npm scope and a release-on-tag workflow are in place.
+This plugin uses the **native** Claude Code plugin update model. The version is
+declared once, as explicit semver, in
+[`.claude-plugin/plugin.json`](./.claude-plugin/plugin.json) (mirrored in the
+`version` of the matching entry in
+[`.claude-plugin/marketplace.json`](./.claude-plugin/marketplace.json)). The
+marketplace tracks the **main branch**, and there is **no self-updater** — the
+old git-based version check has been retired.
 
 **To cut a release:**
 
-1. Update the version in `package.json`, `VERSION`, and `version.json` — keep
-   all three in sync.
-2. Merge the version bump to `main`, then tag the release commit so `npx
-   github:cinatra-ai/dev#<tag>` resolves a reproducible, immutable ref. The
-   version-check script reads `version.json` from the default branch via the
-   GitHub API.
-3. (npm end state, owner-gated) Once the scope is registered, the release-on-tag
-   workflow publishes the tagged version to npm as a public package.
+1. Bump the `version` in `.claude-plugin/plugin.json` **and** the matching
+   `plugins[].version` in `.claude-plugin/marketplace.json` — keep them in sync.
+2. Merge the bump to `main`. The marketplace tracks `main`, so the new version
+   is published as soon as the bump lands.
 
-**To check whether an update is available:**
+**To update an installed copy** (manual, by design):
 
 ```sh
-node bin/check-latest-version.cjs --json
+claude plugin marketplace update   # refresh the marketplace from main
+claude plugin update cinatra-foundation
 ```
-
-This reads the version from the remote repository via the GitHub API and
-compares it to the locally installed version.
 
 ---
 
@@ -242,7 +263,7 @@ Then re-run the installer.
 
 A stray published-marker artifact in the tree can break a pinned sync. Clean
 strays before trusting a refresh. See the
-[`cinatra-dev-env` skill](./skills-src/cinatra-dev-env.md) for the full
+[`cinatra-dev-env` skill](./skills/cinatra-dev-env/SKILL.md) for the full
 recipe.
 
 ---
@@ -253,7 +274,8 @@ Issues and PRs welcome. This package contains no proprietary mechanics.
 
 When contributing:
 
-- Keep skill bodies inside `skills-src/` — one `.md` file per skill.
+- Keep skill bodies inside `skills/` — one `skills/<name>/SKILL.md` per skill
+  (the native plugin auto-discovery layout).
 - Do not push planning or scratch artifacts into this repo; keep them local.
 - All CI gates must be green before merging. The org gate suite runs on every
   push.

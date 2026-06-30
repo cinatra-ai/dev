@@ -4,7 +4,8 @@
 // converter. Mirrors GSD's install-profiles.cjs (PROFILES, parseRequires,
 // stageSkillsForRuntimeAsSkills, agent-call scan) at the level W0 needs.
 //
-// A "source skill" in skills-src/<name>.md is converted at install into a thin
+// A "source skill" in the native-plugin layout skills/<name>/SKILL.md is
+// converted at install into a thin
 // launcher at ~/.claude/skills/dev-<name>/SKILL.md whose body @-includes the
 // heavy workflow from the staged payload dir
 // (@$HOME/.claude/dev-core/workflows/<name>.md) — exactly GSD's stable-shell
@@ -113,7 +114,7 @@ function splitFrontmatter(content) {
 //     way and has no payload/), so the launcher keeps that inline body and we
 //     do NOT inject an include that would dangle on a missing file.
 //
-//   content: the source skills-src/<stem>.md
+//   content: the source skills/<stem>/SKILL.md
 //   stem:    the bare stem (e.g. "merge-doctrine")
 //   opts.hasPayloadWorkflow: whether payload/workflows/<stem>.md is staged
 //     (default true for backward compatibility with the split-launcher pack).
@@ -132,6 +133,15 @@ function convertSourceToSkill(content, stem, opts = {}) {
   }
 
   let outBody = body;
+  // The native-plugin skill source resolves the bundled engine via
+  // $CLAUDE_PLUGIN_ROOT (set by Claude Code when a plugin skill runs). The
+  // LEGACY npx installer stages that same engine at ~/.claude/<ns>-core/bin/
+  // and there is no $CLAUDE_PLUGIN_ROOT in that runtime — so rewrite the engine
+  // path to the staged location for the installed (non-plugin) launcher.
+  outBody = outBody.replace(
+    /\$CLAUDE_PLUGIN_ROOT\/bin\/dev-tools\.cjs/g,
+    `$HOME/.claude/${NAMESPACE}-core/bin/dev-tools.cjs`
+  );
   // Only inject the payload @-include when a payload workflow is actually staged
   // AND the body does not already declare its own execution_context (a source
   // may include several payload files). With no staged workflow, the inline body

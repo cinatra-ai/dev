@@ -36,8 +36,29 @@ function catalogPath() {
 }
 
 function readVersion() {
-  for (const c of [path.join(payloadDir(), "VERSION"), path.join(__dirname, "..", "VERSION")]) {
-    try { return fs.readFileSync(c, "utf8").trim(); } catch { /* next */ }
+  // Native-plugin layout: the version lives in .claude-plugin/plugin.json
+  // (the single source of truth). When this engine runs from a LEGACY npx
+  // install it lives at ~/.claude/dev-core/bin/, so the installer-staged
+  // VERSION sits at __dirname/../VERSION (the no-payload pack stages no
+  // shared/model-catalog.json, so payloadDir() does not resolve to dev-core).
+  // The legacy TOP-LEVEL VERSION source file has been retired in favour of the
+  // plugin manifest.
+  const candidates = [
+    path.join(__dirname, "..", ".claude-plugin", "plugin.json"),
+    path.join(__dirname, "..", "VERSION"),
+    path.join(payloadDir(), "VERSION"),
+  ];
+  for (const c of candidates) {
+    try {
+      const raw = fs.readFileSync(c, "utf8");
+      if (c.endsWith(".json")) {
+        const v = JSON.parse(raw).version;
+        if (typeof v === "string" && v.length) return v;
+        continue; // readable manifest but no usable version → try next candidate
+      }
+      const trimmed = raw.trim();
+      if (trimmed) return trimmed;
+    } catch { /* next */ }
   }
   return "unknown";
 }

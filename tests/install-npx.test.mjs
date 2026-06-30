@@ -1,7 +1,10 @@
-// tests/install-npx.test.mjs — the npx-installability + no-payload pack contract.
+// tests/install-npx.test.mjs — the native-plugin layout + npx-installability
+// contract.
 //
-// This pack is the PUBLIC dev-skills pack: its skills carry their workflow body
-// INLINE and it ships NO payload/ directory. These tests prove that:
+// This pack is the PUBLIC foundation plugin: its skills carry their workflow
+// body INLINE and it ships NO payload/ directory. Skills live in the native
+// Claude Code plugin layout skills/<name>/SKILL.md, and the same tree backs the
+// legacy npx installer (one source of truth). These tests prove that:
 //   1. `npx github:cinatra-ai/dev` works — i.e. the installer can install from
 //      THIS package's own checkout (the fetched tree), without a re-clone.
 //   2. A no-payload pack installs successfully and stages real skill files.
@@ -9,7 +12,10 @@
 //      @-include of a payload workflow that does not exist on disk).
 //   4. --dry-run writes nothing and reports a plan.
 //   5. uninstall removes the dev-* artifacts it staged.
-//   6. The three version files (package.json, VERSION, version.json) agree.
+//   6. The native-plugin manifests are present and internally consistent
+//      (plugin.json <-> marketplace.json name + version agree); the retired
+//      self-updater files (VERSION/version.json/check-latest-version.cjs) are
+//      gone.
 //
 // ALL execution targets a SANDBOX HOME — never the real ~/.claude.
 
@@ -35,12 +41,23 @@ function makeSandbox(label) {
 function readJson(p) { return JSON.parse(fs.readFileSync(p, "utf8")); }
 function rmrf(p) { try { fs.rmSync(p, { recursive: true, force: true }); } catch { /* ignore */ } }
 
-// The pack ships skills inline with no payload/ — assert that precondition so
-// these tests stay honest about WHAT they are proving.
-test("precondition: this pack carries skills-src/ and no payload/ (self-contained public pack)", () => {
-  assert.ok(fs.existsSync(path.join(REPO_ROOT, "skills-src")), "skills-src/ must exist");
-  const skills = fs.readdirSync(path.join(REPO_ROOT, "skills-src")).filter((f) => f.endsWith(".md"));
-  assert.ok(skills.length >= 1, "at least one source skill");
+// Discover the source skill stems in the native-plugin layout
+// (skills/<stem>/SKILL.md) — the same shape the installer and Claude Code's
+// plugin loader both read.
+function sourceStems(root) {
+  const skillsDir = path.join(root, "skills");
+  if (!fs.existsSync(skillsDir)) return [];
+  return fs
+    .readdirSync(skillsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && fs.existsSync(path.join(skillsDir, d.name, "SKILL.md")))
+    .map((d) => d.name);
+}
+
+// The pack ships skills inline in the native-plugin layout with no payload/ —
+// assert that precondition so these tests stay honest about WHAT they prove.
+test("precondition: this pack carries skills/<name>/SKILL.md and no payload/ (self-contained public plugin)", () => {
+  assert.ok(fs.existsSync(path.join(REPO_ROOT, "skills")), "skills/ must exist");
+  assert.ok(sourceStems(REPO_ROOT).length >= 1, "at least one source skill");
   assert.equal(fs.existsSync(path.join(REPO_ROOT, "payload")), false, "this public pack ships no payload/");
 });
 
@@ -69,9 +86,7 @@ test("no-payload --source installs and stages every source skill", () => {
   const res = install.run(["--claude", "--global", "--home", sb.home, "--source", REPO_ROOT]);
 
   assert.equal(res.installed, true, `expected install, got: ${JSON.stringify(res)}`);
-  const srcSkills = fs.readdirSync(path.join(REPO_ROOT, "skills-src"))
-    .filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, ""));
-  for (const stem of srcSkills) {
+  for (const stem of sourceStems(REPO_ROOT)) {
     assert.ok(
       fs.existsSync(path.join(sb.claude, "skills", `dev-${stem}`, "SKILL.md")),
       `dev-${stem}/SKILL.md must be staged`
@@ -112,6 +127,36 @@ test("converter still injects the @-include when a payload workflow IS present (
   assert.match(inline, /BODY/, "self-contained form keeps the inline body");
 });
 
+test("legacy install rewrites the engine path: setup launcher resolves dev-tools under the staged dev-core/, not $CLAUDE_PLUGIN_ROOT", () => {
+  const sb = makeSandbox("enginepath");
+  install.run(["--claude", "--global", "--home", sb.home]);
+
+  const setup = fs.readFileSync(
+    path.join(sb.claude, "skills", "dev-setup", "SKILL.md"),
+    "utf8"
+  );
+  // The native-plugin var must NOT survive into a non-plugin install runtime.
+  assert.doesNotMatch(setup, /\$CLAUDE_PLUGIN_ROOT/, "legacy launcher must not reference $CLAUDE_PLUGIN_ROOT");
+  // It must point at the engine the installer actually staged.
+  assert.match(
+    setup,
+    /\$HOME\/\.claude\/dev-core\/bin\/dev-tools\.cjs/,
+    "legacy launcher must resolve the staged dev-core engine"
+  );
+  // The staged engine itself must be on disk.
+  assert.ok(
+    fs.existsSync(path.join(sb.claude, "dev-core", "bin", "dev-tools.cjs")),
+    "dev-core/bin/dev-tools.cjs must be staged"
+  );
+  // And the staged engine must resolve its version from the staged VERSION
+  // (no .claude-plugin/ alongside the staged dev-core/, no model-catalog).
+  assert.ok(
+    fs.existsSync(path.join(sb.claude, "dev-core", "VERSION")),
+    "dev-core/VERSION must be staged so the engine can report a version"
+  );
+  rmrf(sb.home);
+});
+
 test("--dry-run writes nothing and returns a plan", () => {
   const sb = makeSandbox("dry");
   const res = install.run(["--claude", "--global", "--home", sb.home, "--dry-run"]);
@@ -133,9 +178,9 @@ test("uninstall removes the dev-* artifacts a no-payload install staged", () => 
   rmrf(sb.home);
 });
 
-test("fail-closed: a --source with no skills-src/ (or no bin/) SKIPS with notice, writes nothing", () => {
+test("fail-closed: a --source with no skills/ (or no bin/) SKIPS with notice, writes nothing", () => {
   const sb = makeSandbox("failclosed");
-  // A directory that has a payload/ but NO skills-src/ and NO bin/ is not a
+  // A directory that has a payload/ but NO skills/ and NO bin/ is not a
   // complete pack — staging it would write zero skills. Must skip, not install.
   const fakeSrc = path.join(sb.home, "fakepack");
   fs.mkdirSync(path.join(fakeSrc, "payload", "workflows"), { recursive: true });
@@ -148,10 +193,60 @@ test("fail-closed: a --source with no skills-src/ (or no bin/) SKIPS with notice
   rmrf(sb.home);
 });
 
-test("version alignment: package.json == VERSION == version.json", () => {
-  const pkg = readJson(path.join(REPO_ROOT, "package.json")).version;
-  const ver = fs.readFileSync(path.join(REPO_ROOT, "VERSION"), "utf8").trim();
-  const vj = readJson(path.join(REPO_ROOT, "version.json")).version;
-  assert.equal(pkg, ver, "package.json version must equal VERSION");
-  assert.equal(pkg, vj, "package.json version must equal version.json version");
+test("fail-closed: a source where skills/ or bin/ is a FILE (not a dir) SKIPS with notice", () => {
+  const sb = makeSandbox("nondir");
+  // skills is a plain file, bin is a plain file — neither is a usable tree.
+  const fakeSrc = path.join(sb.home, "nondirpack");
+  fs.mkdirSync(fakeSrc, { recursive: true });
+  fs.writeFileSync(path.join(fakeSrc, "skills"), "not a dir\n");
+  fs.writeFileSync(path.join(fakeSrc, "bin"), "not a dir\n");
+
+  const res = install.run(["--claude", "--global", "--home", sb.home, "--source", fakeSrc]);
+  assert.equal(res.skipped, true, "a non-directory skills/ or bin/ must skip-with-notice, not throw");
+  assert.equal(fs.existsSync(path.join(sb.claude, "dev-core")), false, "nothing written");
+  rmrf(sb.home);
+});
+
+test("the staged payload version is stamped from the RESOLVED SOURCE manifest", () => {
+  const sb = makeSandbox("srcversion");
+  // Stage from THIS checkout; the staged dev-core/VERSION must equal the
+  // source's .claude-plugin/plugin.json version (not a hard-coded constant).
+  install.run(["--claude", "--global", "--home", sb.home, "--source", REPO_ROOT]);
+  const stamped = fs.readFileSync(path.join(sb.claude, "dev-core", "VERSION"), "utf8").trim();
+  const manifestVersion = readJson(path.join(REPO_ROOT, ".claude-plugin", "plugin.json")).version;
+  assert.equal(stamped, manifestVersion, "staged VERSION must match the source plugin.json version");
+  rmrf(sb.home);
+});
+
+test("native-plugin manifests are present and internally consistent; legacy self-updater files are retired", () => {
+  const pluginPath = path.join(REPO_ROOT, ".claude-plugin", "plugin.json");
+  const marketplacePath = path.join(REPO_ROOT, ".claude-plugin", "marketplace.json");
+  assert.ok(fs.existsSync(pluginPath), ".claude-plugin/plugin.json must exist");
+  assert.ok(fs.existsSync(marketplacePath), ".claude-plugin/marketplace.json must exist");
+
+  const plugin = readJson(pluginPath);
+  const marketplace = readJson(marketplacePath);
+
+  // plugin.json carries an explicit semver and a name.
+  assert.match(plugin.version, /^\d+\.\d+\.\d+/, "plugin.json version must be semver");
+  assert.ok(plugin.name && plugin.name.length > 0, "plugin.json must have a name");
+
+  // The marketplace must list exactly this plugin, with matching name + version.
+  const entry = (marketplace.plugins || []).find((p) => p.name === plugin.name);
+  assert.ok(entry, "marketplace.json must list the plugin by its plugin.json name");
+  assert.equal(entry.version, plugin.version, "marketplace plugin version must match plugin.json");
+  assert.equal(entry.source, ".", "single-repo plugin source must be '.'");
+
+  // Every native-plugin skill dir holds a SKILL.md (the auto-discovery layout).
+  const stems = sourceStems(REPO_ROOT);
+  assert.ok(stems.length >= 1, "at least one skills/<name>/SKILL.md");
+
+  // The retired self-updater files must be gone.
+  assert.equal(fs.existsSync(path.join(REPO_ROOT, "VERSION")), false, "VERSION retired");
+  assert.equal(fs.existsSync(path.join(REPO_ROOT, "version.json")), false, "version.json retired");
+  assert.equal(
+    fs.existsSync(path.join(REPO_ROOT, "bin", "check-latest-version.cjs")),
+    false,
+    "check-latest-version.cjs retired"
+  );
 });
