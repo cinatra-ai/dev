@@ -28,6 +28,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cinatra-ai/dev.git"
+    "url": "git+https://github.com/cinatra-ai/claude-plugin.git"
   }
 }

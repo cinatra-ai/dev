@@ -1,4 +1,4 @@
-# cinatra-ai/dev
+# cinatra-ai/claude-plugin
 
 Claude Code skills that help a single developer set up and build **with**
 Cinatra. Install once; the skills activate on natural-language triggers inside
@@ -48,11 +48,11 @@ organisation-internal runbooks live in their own repos.
 Add this repo as a plugin marketplace, then install the foundation plugin:
 
 ```sh
-claude plugin marketplace add git@github.com:cinatra-ai/dev.git
+claude plugin marketplace add git@github.com:cinatra-ai/claude-plugin.git
 claude plugin install cinatra-foundation@cinatra-foundation
 ```
 
-(Use the `https://github.com/cinatra-ai/dev.git` URL instead of the SSH one if
+(Use the `https://github.com/cinatra-ai/claude-plugin.git` URL instead of the SSH one if
 you clone over HTTPS.)
 
 Claude Code stages the five skills from `skills/<name>/SKILL.md` and resolves the
@@ -72,14 +72,14 @@ A clone-based installer is kept during the transition. It stages the skills into
 your global Claude profile (`~/.claude/skills/dev-*`) and a `dev-core/` payload:
 
 ```sh
-npx --yes github:cinatra-ai/dev --claude --global \
+npx --yes github:cinatra-ai/claude-plugin --claude --global \
   --i-understand-this-writes-my-real-claude-dir
 ```
 
 Pin to a specific tag for a reproducible install (recommended for CI):
 
 ```sh
-npx --yes github:cinatra-ai/dev#<tag> --claude --global \
+npx --yes github:cinatra-ai/claude-plugin#<tag> --claude --global \
   --i-understand-this-writes-my-real-claude-dir
 ```
 
@@ -90,8 +90,8 @@ default branch).
 ### Option C — clone and run the installer
 
 ```sh
-git clone https://github.com/cinatra-ai/dev.git
-cd dev
+git clone https://github.com/cinatra-ai/claude-plugin.git
+cd claude-plugin
 node bin/install.mjs --claude --global --i-understand-this-writes-my-real-claude-dir
 ```
 
@@ -107,7 +107,7 @@ The preflight runs before dry-run handling, so the acknowledgement flag is
 still required:
 
 ```sh
-npx --yes github:cinatra-ai/dev --claude --global --dry-run \
+npx --yes github:cinatra-ai/claude-plugin --claude --global --dry-run \
   --i-understand-this-writes-my-real-claude-dir
 ```
 
@@ -158,11 +158,11 @@ The installer resolves its source in this order:
 1. `--source <path>` — a local pack checkout (used by the tests and local
    development).
 2. **This package's own checkout** — when the installer runs from a complete
-   pack (the `npx github:cinatra-ai/dev[#<ref>]` / `npx @cinatra-ai/dev` path,
+   pack (the `npx github:cinatra-ai/claude-plugin[#<ref>]` / `npx @cinatra-ai/dev` path,
    where the package has already been fetched into place). Installing from the
    fetched tree makes the install reproducible: the ref you pin is the content
    you get, with no second network round-trip.
-3. A shallow clone of `cinatra-ai/dev` — a fallback used only when the running
+3. A shallow clone of `cinatra-ai/claude-plugin` — a fallback used only when the running
    checkout is not itself a pack.
 
 The skills in this package carry their workflow body **inline**, so no separate
@@ -244,9 +244,9 @@ node bin/install.mjs --claude --global --i-understand-this-writes-my-real-claude
 
 When run via `npx` or from a cloned checkout, the installer uses that checkout
 directly as its source. The clone fallback only runs if the checkout is not a
-valid pack; it fails soft (prints a notice, writes nothing) if `cinatra-ai/dev`
+valid pack; it fails soft (prints a notice, writes nothing) if `cinatra-ai/claude-plugin`
 cannot be reached. Re-run from a complete checkout or via
-`npx --yes github:cinatra-ai/dev`.
+`npx --yes github:cinatra-ai/claude-plugin`.
 
 **The installer refuses: "dev-core/ exists but has no .identity marker"**
 

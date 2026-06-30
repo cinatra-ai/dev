@@ -5,7 +5,7 @@
 // body INLINE and it ships NO payload/ directory. Skills live in the native
 // Claude Code plugin layout skills/<name>/SKILL.md, and the same tree backs the
 // legacy npx installer (one source of truth). These tests prove that:
-//   1. `npx github:cinatra-ai/dev` works — i.e. the installer can install from
+//   1. `npx github:cinatra-ai/claude-plugin` works — i.e. the installer can install from
 //      THIS package's own checkout (the fetched tree), without a re-clone.
 //   2. A no-payload pack installs successfully and stages real skill files.
 //   3. The converter emits a SELF-CONTAINED launcher (no dangling
@@ -64,7 +64,7 @@ test("precondition: this pack carries skills/<name>/SKILL.md and no payload/ (se
 test("install from THIS package's own checkout (the npx path) stages skills without --source", () => {
   const sb = makeSandbox("self");
   // No --source: the installer must fall back to its OWN checkout (REPO_ROOT),
-  // exactly as it would when run via `npx github:cinatra-ai/dev`. No re-clone.
+  // exactly as it would when run via `npx github:cinatra-ai/claude-plugin`. No re-clone.
   const res = install.run(["--claude", "--global", "--home", sb.home]);
 
   assert.notEqual(res.skipped, true, `must not skip-with-notice: ${res.reason || ""}`);

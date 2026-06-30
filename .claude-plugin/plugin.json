@@ -6,7 +6,7 @@
     "name": "Cinatra",
     "email": "sandro@cinatra.ai"
   },
-  "repository": "https://github.com/cinatra-ai/dev",
+  "repository": "https://github.com/cinatra-ai/claude-plugin",
   "license": "Apache-2.0",
   "keywords": [
     "claude-code",
