@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // ---------------------------------------------------------------------------
-// install.mjs — the GSD-parity, clone-based installer for cinatra-ai/dev.
+// install.mjs — the clone-based installer for cinatra-ai/claude-plugin.
 //
 // Flow (DESIGN §2.1):
 //   0. PREFLIGHT (hard): refuse to write the live ~/.claude / authoring HOME
 //      unless an explicit override is passed (W0 constraint C3). Always runs.
 //   1. Resolve the SOURCE. --source <path> uses a local repo fixture (tests +
 //      dev); otherwise use THIS package's own checkout when it is a complete
-//      pack (the `npx github:cinatra-ai/dev[#<ref>]` / `npx @cinatra-ai/dev`
+//      pack (the `npx github:cinatra-ai/claude-plugin[#<ref>]` / `npx @cinatra-ai/dev`
 //      path — reproducible: the npx-pinned ref IS the installed content); only
 //      if the running checkout is NOT a pack, fall back to a shallow clone of
 //      the locked repo (the legacy clone-as-access-gate path). A clone failure
@@ -168,7 +168,7 @@ function isPackSource(root) {
 // Resolve the pack SOURCE root. Order:
 //   1. --source <path> (dev/tests fixtures, local development).
 //   2. THIS package's own checkout — when the installer runs from a complete
-//      pack (e.g. `npx github:cinatra-ai/dev[#<ref>]` or `npx @cinatra-ai/dev`,
+//      pack (e.g. `npx github:cinatra-ai/claude-plugin[#<ref>]` or `npx @cinatra-ai/dev`,
 //      where npm has already fetched THIS exact version into place). Installing
 //      from the fetched tree makes the install REPRODUCIBLE — the version you
 //      npx-pin is the version you get — and needs no second network round-trip.

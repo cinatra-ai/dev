@@ -9,12 +9,18 @@
 // ---------------------------------------------------------------------------
 
 // The npm-style package name (informational; this pack is NOT published to npm).
+// NOTE: deliberately retained as `@cinatra-ai/dev` after the repo rename to
+// `cinatra-ai/claude-plugin`. This constant is ALSO the ownership key written
+// into `~/.claude/dev-core/.identity`; renaming it would make every existing
+// install's payload look foreign and the installer would fail closed. The repo
+// PATH (REPO_SLUG, below) is the thing that moved; the package/ownership
+// identity is intentionally NOT cascaded without a dedicated migration.
 const PACKAGE_NAME = "@cinatra-ai/dev";
 
 // The GitHub repo this pack is distributed from. The clone of THIS repo is the
 // access gate (privacy = access). The installer's clone-source keys on this
 // constant.
-const REPO_SLUG = "cinatra-ai/dev";
+const REPO_SLUG = "cinatra-ai/claude-plugin";
 const REPO_HTTPS = `https://github.com/${REPO_SLUG}.git`;
 const REPO_SSH = `git@github.com:${REPO_SLUG}.git`;
 
