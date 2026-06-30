@@ -34,13 +34,13 @@ confirm. Idempotent; user-scope by default; privileged steps flagged separately.
    (the bundled doctor CLI):
 
    ```sh
-   dev-tools doctor --json
+   node "$CLAUDE_PLUGIN_ROOT/bin/dev-tools.cjs" doctor --json
    ```
 
 2. Preview the global-baseline changes EXACTLY (still read-only):
 
    ```sh
-   dev-tools global-settings-diff
+   node "$CLAUDE_PLUGIN_ROOT/bin/dev-tools.cjs" global-settings-diff
    ```
 
 3. On --apply (or confirm), install missing tools per the OS matrix in the
@@ -71,14 +71,14 @@ confirm. Idempotent; user-scope by default; privileged steps flagged separately.
    (the bundled doctor CLI):
 
    ```sh
-   dev-tools doctor --json
+   node "$CLAUDE_PLUGIN_ROOT/bin/dev-tools.cjs" doctor --json
    ```
 
 2. **Preview** the global-baseline diff (still read-only — exact added/changed
    keys):
 
    ```sh
-   dev-tools global-settings-diff
+   node "$CLAUDE_PLUGIN_ROOT/bin/dev-tools.cjs" global-settings-diff
    ```
 
 3. **Apply** only on `--apply` or explicit confirm.

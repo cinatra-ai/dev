@@ -7,11 +7,10 @@
     "cinatra-dev-install": "bin/install.mjs"
   },
   "files": [
+    ".claude-plugin/",
     "bin/",
-    "skills-src/",
+    "skills/",
     "payload/",
-    "VERSION",
-    "version.json",
     "README.md",
     "LICENSE"
   ],

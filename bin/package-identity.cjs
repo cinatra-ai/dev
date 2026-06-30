@@ -3,18 +3,17 @@
 // package-identity — the single locked identity of this pack.
 //
 // Mirrors GSD's bin/lib/package-identity.cjs: the package/repo name is a hard
-// code constant, not an LLM- or arg-derived value, so check-latest-version,
-// clone-source resolution, and the ~/.claude/dev-core/.identity ownership
-// assertion can never drift to a typosquat or a foreign fork squatting the
-// generic `dev-` prefix.
+// code constant, not an LLM- or arg-derived value, so clone-source resolution
+// and the ~/.claude/dev-core/.identity ownership assertion can never drift to a
+// typosquat or a foreign fork squatting the generic `dev-` prefix.
 // ---------------------------------------------------------------------------
 
 // The npm-style package name (informational; this pack is NOT published to npm).
 const PACKAGE_NAME = "@cinatra-ai/dev";
 
 // The GitHub repo this pack is distributed from. The clone of THIS repo is the
-// access gate (privacy = access). check-latest-version.cjs and the installer's
-// clone-source both key on this constant.
+// access gate (privacy = access). The installer's clone-source keys on this
+// constant.
 const REPO_SLUG = "cinatra-ai/dev";
 const REPO_HTTPS = `https://github.com/${REPO_SLUG}.git`;
 const REPO_SSH = `git@github.com:${REPO_SLUG}.git`;

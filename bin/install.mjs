@@ -109,10 +109,46 @@ function copyDir(src, dst, manifest, relBase, claudeDir) {
   }
 }
 
+// The native-plugin skills layout: each skill is skills/<name>/SKILL.md. This
+// is the same on-disk shape Claude Code's plugin loader auto-discovers, so the
+// repo carries ONE source of truth for both the native-plugin install and this
+// legacy npx installer (no duplicate skills-src/ tree to drift).
+//
+// Returns the list of skill stems (dir names under skills/ that hold a SKILL.md)
+// for a given source root, or [] when there is no skills/ tree.
+function discoverSkillStems(root) {
+  const skillsDir = path.join(root, "skills");
+  // A skills/ that is not a real directory is not a pack — treat as none
+  // (statSync rather than existsSync so a stray `skills` FILE never throws in
+  // readdirSync below; the pack predicate then fails closed).
+  let st;
+  try { st = fs.statSync(skillsDir); } catch { return []; }
+  if (!st.isDirectory()) return [];
+  return fs
+    .readdirSync(skillsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && fs.existsSync(path.join(skillsDir, d.name, "SKILL.md")))
+    .map((d) => d.name);
+}
+
+// Read the semver from a source tree's native-plugin manifest
+// (.claude-plugin/plugin.json). A missing/unreadable manifest or a manifest
+// with no usable version stamps the payload as "unknown" rather than crashing
+// the install or stamping `undefined`.
+function readManifestVersion(root) {
+  try {
+    const v = JSON.parse(
+      fs.readFileSync(path.join(root, ".claude-plugin", "plugin.json"), "utf8")
+    ).version;
+    return typeof v === "string" && v.length ? v : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 // A directory is a valid pack SOURCE only if it can produce a real install:
-//   • a non-empty skills-src/ (≥1 `.md` — these are the artifacts that get
-//     staged; a source with zero skills stages nothing, so it is NOT a pack),
-//     AND
+//   • a non-empty skills/ tree (≥1 `skills/<name>/SKILL.md` — these are the
+//     artifacts that get staged; a source with zero skills stages nothing, so
+//     it is NOT a pack), AND
 //   • a bin/ tree (the staged dev-tools shim is copied UNCONDITIONALLY at the
 //     write step — its absence would crash AFTER the destructive payloadDir rm).
 // payload/ is OPTIONAL: a pack whose skills carry their workflow body INLINE
@@ -120,12 +156,13 @@ function copyDir(src, dst, manifest, relBase, claudeDir) {
 // self-contained launcher for those. This predicate is the fail-closed gate:
 // anything that is not a complete pack SKIPS-WITH-NOTICE before any write.
 function isPackSource(root) {
-  const skillsSrc = path.join(root, "skills-src");
-  const hasSkills =
-    fs.existsSync(skillsSrc) &&
-    fs.readdirSync(skillsSrc).some((f) => f.endsWith(".md"));
-  const hasBin = fs.existsSync(path.join(root, "bin"));
-  return hasSkills && hasBin;
+  const hasSkills = discoverSkillStems(root).length > 0;
+  // bin/ must be a real DIRECTORY (the write step copies it as a tree); a stray
+  // `bin` file would otherwise pass and crash the copy after the destructive
+  // payload rm. statSync (not existsSync) so the predicate fails closed.
+  let binIsDir = false;
+  try { binIsDir = fs.statSync(path.join(root, "bin")).isDirectory(); } catch { /* fail closed */ }
+  return hasSkills && binIsDir;
 }
 
 // Resolve the pack SOURCE root. Order:
@@ -145,7 +182,7 @@ function resolveSource(args) {
     if (src.startsWith("file://")) src = fileURLToPath(src);
     src = path.resolve(src);
     if (!isPackSource(src)) {
-      return { skip: true, reason: `--source ${src} is not a complete pack source (needs a non-empty skills-src/ and a bin/)` };
+      return { skip: true, reason: `--source ${src} is not a complete pack source (needs a non-empty skills/<name>/SKILL.md and a bin/)` };
     }
     return { sourceRoot: src, cleanup: () => {} };
   }
@@ -162,7 +199,7 @@ function resolveSource(args) {
     execFileSync("git", ["clone", "--depth", "1", REPO_HTTPS, tmp], { stdio: "pipe" });
     if (!isPackSource(tmp)) {
       fs.rmSync(tmp, { recursive: true, force: true });
-      return { skip: true, reason: `cloned ${REPO_HTTPS} but it is not a complete pack source (needs a non-empty skills-src/ and a bin/)` };
+      return { skip: true, reason: `cloned ${REPO_HTTPS} but it is not a complete pack source (needs a non-empty skills/<name>/SKILL.md and a bin/)` };
     }
     return { sourceRoot: tmp, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
   } catch (e) {
@@ -227,8 +264,6 @@ function run(argv) {
   }
 
   const layout = resolveRuntimeArtifactLayout({ runtime: args.runtime, scope: args.scope, home: args.home });
-  const version = fs.readFileSync(path.join(__dirname, "..", "VERSION"), "utf8").trim();
-  const identity = { package: require("./package-identity.cjs").PACKAGE_NAME, version };
 
   // ---- 1. Resolve source (clone = access gate; skip-with-notice) ----
   const src = resolveSource(args);
@@ -236,6 +271,15 @@ function run(argv) {
     return { ok: true, skipped: true, reason: src.reason };
   }
   const sourceRoot = src.sourceRoot;
+
+  // Single source of truth for the version is now the native-plugin manifest
+  // (.claude-plugin/plugin.json) of the RESOLVED SOURCE — so a --source/clone
+  // install stamps the source's version, not the installer checkout's. The
+  // legacy VERSION/version.json self-updater files have been retired in favour
+  // of the native `claude plugin update` model; the installer just stamps the
+  // staged payload with this semver.
+  const version = readManifestVersion(sourceRoot);
+  const identity = { package: require("./package-identity.cjs").PACKAGE_NAME, version };
 
   try {
     // ---- 2. Ownership assertion (unless dry-run) ----
@@ -251,21 +295,22 @@ function run(argv) {
     // ---- 3..5. Build the staging plan ----
     const payloadSrc = path.join(sourceRoot, "payload");
     const hasPayload = fs.existsSync(payloadSrc);
-    const skillsSrcDir = path.join(sourceRoot, "skills-src");
+    // Source skills now live in the native-plugin layout skills/<stem>/SKILL.md
+    // (the same tree Claude Code's plugin loader auto-discovers), so this
+    // installer and the native plugin share ONE source of truth.
+    const skillSrcPath = (stem) => path.join(sourceRoot, "skills", stem, "SKILL.md");
     // A skill's heavy body lives EITHER in payload/workflows/<stem>.md (the
-    // split-launcher form) OR inline in skills-src/<stem>.md (the self-contained
-    // form). The converter must only @-include a payload workflow that is
-    // actually staged — otherwise the installed launcher dangles on a missing
-    // file. A pack with no payload/ stages every skill self-contained.
+    // split-launcher form) OR inline in skills/<stem>/SKILL.md (the self-
+    // contained form). The converter must only @-include a payload workflow
+    // that is actually staged — otherwise the installed launcher dangles on a
+    // missing file. A pack with no payload/ stages every skill self-contained.
     const hasPayloadWorkflow = (stem) =>
       hasPayload && fs.existsSync(path.join(payloadSrc, "workflows", `${stem}.md`));
 
     // discover source skills + their requires for the closure
-    const sourceSkills = fs.existsSync(skillsSrcDir)
-      ? fs.readdirSync(skillsSrcDir).filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, ""))
-      : [];
+    const sourceSkills = discoverSkillStems(sourceRoot);
     const requiresOf = (stem) => {
-      const p = path.join(skillsSrcDir, `${stem}.md`);
+      const p = skillSrcPath(stem);
       if (!fs.existsSync(p)) return [];
       const { frontmatter } = profiles.splitFrontmatter(fs.readFileSync(p, "utf8"));
       return profiles.parseRequires(frontmatter);
@@ -277,7 +322,7 @@ function run(argv) {
     const stagedSkills = [];
     const calledAgents = new Set();
     for (const stem of effective) {
-      const srcPath = path.join(skillsSrcDir, `${stem}.md`);
+      const srcPath = skillSrcPath(stem);
       const content = fs.readFileSync(srcPath, "utf8");
       const converted = profiles.convertSourceToSkill(content, stem, {
         hasPayloadWorkflow: hasPayloadWorkflow(stem),
