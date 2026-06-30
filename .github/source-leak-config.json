@@ -1,0 +1,4 @@
+{
+  "_comment": "Per-repo source-leak-gate config (cinatra-ai/ci reusable, profile default). dev ships only public Claude Code dev skills (Apache-2.0); no scaffold/source exclusions are needed. Add line-anchored lineExcludes here only for unavoidable false positives.",
+  "lineExcludes": []
+}
